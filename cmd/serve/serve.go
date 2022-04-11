@@ -97,12 +97,17 @@ func (c *serveCmd) run() error {
 	if err != nil {
 		return err
 	}
+	embeddedBackend, err := configBackend()
+	if err != nil {
+		return err
+	}
 	opts := server.BlockchainServerOpts{
 		DCS:                  dcs,
 		FabricSDK:            sdk,
 		ChannelManagerConfig: channelManagerConfig,
 		Address:              c.address,
 		MetricsAddress:       c.metricsAddress,
+		ConfigBackend:        embeddedBackend,
 	}
 	s := server.NewServer(ctx, opts)
 	s.Run()

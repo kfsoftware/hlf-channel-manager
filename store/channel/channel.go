@@ -12,14 +12,18 @@ import (
 	cb "github.com/hyperledger/fabric-protos-go/common"
 	mspclient "github.com/hyperledger/fabric-sdk-go/pkg/client/msp"
 	"github.com/hyperledger/fabric-sdk-go/pkg/client/resmgmt"
+	context2 "github.com/hyperledger/fabric-sdk-go/pkg/common/providers/context"
+	"github.com/hyperledger/fabric-sdk-go/pkg/common/providers/core"
 	"github.com/hyperledger/fabric-sdk-go/pkg/common/providers/msp"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fab/resource"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
+	msp2 "github.com/hyperledger/fabric-sdk-go/pkg/msp"
 	"github.com/hyperledger/fabric/protoutil"
 	appconfig "github.com/kfsoftware/hlf-channel-manager/config"
 	"github.com/kfsoftware/hlf-channel-manager/log"
 	"github.com/kfsoftware/hlf-channel-manager/utils"
 	operatorv1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
+	"github.com/lithammer/shortuuid/v3"
 	"github.com/pkg/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
@@ -28,20 +32,74 @@ import (
 	"time"
 )
 
+func getResmgmtClient(sdk *fabsdk.FabricSDK, adminOrg appconfig.AdminOrg, configBackends []core.ConfigBackend) (*resmgmt.Client, context2.ClientProvider, msp.SigningIdentity, error) {
+	identityCtx, err := msp2.ConfigFromBackend(configBackends...)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caConfig, ok := identityCtx.CAConfig(adminOrg.CA)
+	if !ok {
+		return nil, nil, nil, fmt.Errorf("CA not found: %s", adminOrg.CA)
+	}
+	sdkContext := sdk.Context(
+		fabsdk.WithOrg(adminOrg.MSPID),
+	)
+	mspClient, err := mspclient.New(
+		sdkContext,
+		mspclient.WithCAInstance(adminOrg.CA),
+		mspclient.WithOrg(adminOrg.MSPID),
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	err = mspClient.Enroll(caConfig.Registrar.EnrollID, mspclient.WithSecret(caConfig.Registrar.EnrollSecret))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	adminName := shortuuid.New()[6:]
+	secret := "adminpw"
+	_, err = mspClient.Register(&mspclient.RegistrationRequest{
+		Name:           adminName,
+		Type:           "admin",
+		MaxEnrollments: -1,
+		Affiliation:    "",
+		Attributes:     nil,
+		CAName:         "ca",
+		Secret:         secret,
+	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	err = mspClient.Enroll(adminName, mspclient.WithSecret(secret))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	adminUser, err := mspClient.GetSigningIdentity(adminName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sdkContext = sdk.Context(
+		fabsdk.WithIdentity(adminUser),
+		fabsdk.WithOrg(adminOrg.MSPID),
+	)
+	resClient, err := resmgmt.New(sdkContext)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return resClient, sdkContext, adminUser, nil
+}
+
 func SyncChannel(
 	ctx context.Context,
 	channelConfig appconfig.ChannelConfig,
 	channelManagerConfig appconfig.HLFChannelManagerConfig,
 	sdk *fabsdk.FabricSDK,
+	configBackends []core.ConfigBackend,
 	saveOrderer bool,
 	savePeer bool,
 ) error {
 	firstAdminOrg := channelConfig.PeerAdminOrgs[0]
-	sdkContext := sdk.Context(
-		fabsdk.WithUser(firstAdminOrg.User),
-		fabsdk.WithOrg(firstAdminOrg.MSPID),
-	)
-	resClient, err := resmgmt.New(sdkContext)
+	resClient, _, _, err := getResmgmtClient(sdk, firstAdminOrg, configBackends)
 	if err != nil {
 		return err
 	}
@@ -295,11 +353,7 @@ func SyncChannel(
 	}
 	if channelExists && saveOrderer {
 		ordererAdminOrg := channelConfig.OrdererAdminOrgs[0]
-		ordSDKContext := sdk.Context(
-			fabsdk.WithUser(ordererAdminOrg.User),
-			fabsdk.WithOrg(ordererAdminOrg.MSPID),
-		)
-		ordResClient, err := resmgmt.New(ordSDKContext)
+		ordResClient, _, _, err := getResmgmtClient(sdk, ordererAdminOrg, configBackends)
 		if err != nil {
 			return err
 		}
@@ -328,11 +382,7 @@ func SyncChannel(
 		var configSignatures []*cb.ConfigSignature
 		for _, adminOrderer := range channelConfig.OrdererAdminOrgs {
 			configUpdateReader = bytes.NewReader(channelConfigBytes)
-			mspClient, err := mspclient.New(sdkContext, mspclient.WithOrg(adminOrderer.MSPID))
-			if err != nil {
-				return err
-			}
-			usr, err := mspClient.GetSigningIdentity(adminOrderer.User)
+			resClient, _, usr, err := getResmgmtClient(sdk, adminOrderer, configBackends)
 			if err != nil {
 				return err
 			}
@@ -359,11 +409,7 @@ func SyncChannel(
 applicationUpdate:
 	if channelExists && savePeer {
 		peerAdminOrg := channelConfig.PeerAdminOrgs[0]
-		peerSDKContext := sdk.Context(
-			fabsdk.WithUser(peerAdminOrg.User),
-			fabsdk.WithOrg(peerAdminOrg.MSPID),
-		)
-		peerResClient, err := resmgmt.New(peerSDKContext)
+		peerResClient, _, _, err := getResmgmtClient(sdk, peerAdminOrg, configBackends)
 		if err != nil {
 			return err
 		}
@@ -391,11 +437,7 @@ applicationUpdate:
 		var configSignatures []*cb.ConfigSignature
 		for _, adminPeer := range channelConfig.PeerAdminOrgs {
 			configUpdateReader = bytes.NewReader(channelConfigBytes)
-			mspClient, err := mspclient.New(sdkContext, mspclient.WithOrg(adminPeer.MSPID))
-			if err != nil {
-				return err
-			}
-			usr, err := mspClient.GetSigningIdentity(adminPeer.User)
+			peerResClient, _, usr, err := getResmgmtClient(sdk, adminPeer, configBackends)
 			if err != nil {
 				return err
 			}

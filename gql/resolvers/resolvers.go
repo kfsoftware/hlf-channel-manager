@@ -3,6 +3,7 @@ package resolvers
 // THIS CODE IS A STARTING POINT ONLY. IT WILL NOT BE UPDATED WITH SCHEMA CHANGES.
 
 import (
+	"github.com/hyperledger/fabric-sdk-go/pkg/common/providers/core"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
 	appconfig "github.com/kfsoftware/hlf-channel-manager/config"
 	"github.com/kfsoftware/hlf-channel-manager/gql"
@@ -13,6 +14,7 @@ type Resolver struct {
 	DCS                  map[string]*operatorv1.Clientset
 	ChannelManagerConfig appconfig.HLFChannelManagerConfig
 	FabricSDK            *fabsdk.FabricSDK
+	ConfigBackend        []core.ConfigBackend
 }
 
 // Mutation returns gql.MutationResolver implementation.

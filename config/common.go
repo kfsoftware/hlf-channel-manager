@@ -69,7 +69,7 @@ type Policy struct {
 }
 type AdminOrg struct {
 	MSPID string `yaml:"mspid"`
-	User  string `yaml:"user"`
+	CA    string `yaml:"ca"`
 }
 
 type PeerOrg struct {

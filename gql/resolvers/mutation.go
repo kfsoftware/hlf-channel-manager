@@ -335,6 +335,7 @@ func (r *mutationResolver) SyncChannel(ctx context.Context, channelConfigStr str
 		channelConfig,
 		r.ChannelManagerConfig,
 		r.FabricSDK,
+		r.ConfigBackend,
 		saveOrderer,
 		saveApplication,
 	)

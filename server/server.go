@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"github.com/hyperledger/fabric-sdk-go/pkg/common/providers/core"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
 	appconfig "github.com/kfsoftware/hlf-channel-manager/config"
 	operatorv1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
@@ -36,6 +37,7 @@ type BlockchainServerOpts struct {
 	DCS                  map[string]*operatorv1.Clientset
 	FabricSDK            *fabsdk.FabricSDK
 	ChannelManagerConfig appconfig.HLFChannelManagerConfig
+	ConfigBackend        []core.ConfigBackend
 }
 
 type BlockchainAPIServer struct {
@@ -76,6 +78,7 @@ func (a *BlockchainAPIServer) setupHttpServer() (http.Handler, error) {
 			DCS:                  a.DCS,
 			FabricSDK:            a.FabricSDK,
 			ChannelManagerConfig: a.ChannelManagerConfig,
+			ConfigBackend:        a.ConfigBackend,
 		},
 	}
 	// TODO: set up auth
