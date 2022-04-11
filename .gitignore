@@ -1,0 +1,8 @@
+.dev
+.idea
+*.yaml
+*.block
+*.tar.gz
+keystore
+*.tgz
+*.json

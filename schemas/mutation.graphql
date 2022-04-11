@@ -1,0 +1,138 @@
+# create channel
+# join orderer
+# join peer
+# sign update
+# update channel
+# add consenter
+type Mutation {
+    syncChannel(channelConfig: String!, saveOrderer: Boolean!, saveApplication: Boolean!): SyncChannelResponse!
+    computeChannel(name: String!, config: ChannelConfig!): ComputeChannelResponse!
+    addOrg(input: OrgDefinition!): Org!
+    deleteOrg(name: String!): Org!
+}
+
+type SyncChannelResponse {
+    success: Boolean!
+    outputJson: String!
+    outputPB: String!
+}
+input OrgDefinition {
+    signCACertificate: String!
+    tlsCACertificate: String!
+    mspID: String!
+}
+type ComputeChannelResponse {
+    name: String!
+    channelProtoB64: String!
+    channelJsonB64: String!
+}
+input ChannelConfig {
+    application: ApplicationConfigInput!
+    orderer: OrdererConfigInput
+    channel: ChannelConfigInput!
+}
+
+input ChannelPeerOrgInput {
+    mspID: String!
+}
+input ChannelOrdererOrgInput {
+    mspID: String!
+    orderers: [ChannelOrdererInput!]
+}
+input ChannelOrdererInput {
+    dc: String!
+    name: String!
+    namespace: String!
+}
+
+
+input OrdererConfigInput {
+    batchTimeout: Int
+    state: String
+    etcdRaft: EtcdRaftInput
+    policies: [PolicyInput!]
+    capabilities: [String!]
+    organizations: [ChannelOrganization!]
+    batchSize: OrdererConfigBatchSizeInput
+}
+input OrdererConfigBatchSizeInput {
+    maxMessageCount: Int!
+    absoluteMaxBytes: Int!
+    preferredMaxBytes: Int!
+}
+input EtcdRaftInput {
+    consenters: [OrdererConfigRaftConsenterInput!]
+    options: OrdererConfigRaftOptionsInput
+}
+input OrdererConfigRaftConsenterInput {
+    address: NetworkAddressInput!
+    clientTlsCert: String!
+    serverTlsCert: String!
+}
+input OrdererConfigRaftOptionsInput {
+    tickInterval: String!
+    electionTick: Int!
+    heartbeatTick: Int!
+    maxInflightBlocks: Int!
+    snapshotIntervalSize: Int!
+}
+input ApplicationConfigInput {
+    policies: [PolicyInput!]
+    acls: [ChannelACLInput!]
+    capabilities: [String!]
+    orgs: [ChannelOrganization!]
+}
+input NetworkAddressInput {
+    host: String!
+    port: Int!
+}
+input ChannelOrganization {
+    mspID: String!
+    modPolicy: String!
+    policies: [PolicyInput!]
+    msp: MSPInput!
+    anchorPeers: [NetworkAddressInput!]
+    ordererEndpoints: [String!]
+}
+input MSPInput {
+    name: String!
+    rootCerts: [String!]
+    intermediateCerts: [String!]
+    admins: [String!]
+    revocationList: [String!]
+    ous: [OUIdentifierInput!]
+    tlsRootCerts: [String!]
+    tlsIntermediateCerts: [String!]
+    nodeOUs: NodeOUsInput!
+    cryptoConfig: CryptoConfigInput!
+}
+input NodeOUsInput {
+    enable: Boolean!
+    clientOUIdentifier: OUIdentifierInput!
+    peerOUIdentifier: OUIdentifierInput!
+    adminOUIdentifier: OUIdentifierInput!
+    ordererOUIdentifier: OUIdentifierInput!
+}
+input CryptoConfigInput {
+    signatureHashFamily: String! = "SHA2"
+    identityIdentifierHashFunction: String! = "SHA256"
+}
+input OUIdentifierInput {
+    certificate: String!
+    ouIdentifier: String!
+}
+input ChannelACLInput {
+    key: String!
+    value: String!
+}
+input ChannelConfigInput {
+    policies: [PolicyInput!]
+    capabilities: [String!]
+}
+input PolicyInput {
+    key: String!
+    type: String!
+    rule: String!
+    modPolicy: String!
+}
+

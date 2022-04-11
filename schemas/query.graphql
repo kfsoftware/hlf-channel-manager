@@ -1,0 +1,16 @@
+type Query {
+    channel(name: String!, mspID: String!, user: String!): Channel
+    orgs: [Org!]
+    org(mspID: String!): Org
+}
+
+type Channel {
+    name: String!
+    height: Int!
+    config: String!
+}
+type Org {
+    mspId: String!
+    signCACertificate: String!
+    tlsCACertificate: String!
+}
