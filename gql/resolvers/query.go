@@ -14,8 +14,8 @@ import (
 
 func (r *queryResolver) Channel(ctx context.Context, name string, mspID string, user string) (*models.Channel, error) {
 	sdkContext := r.FabricSDK.Context(
-		fabsdk.WithUser("admin"),
-		fabsdk.WithOrg("euipomsp"),
+		fabsdk.WithUser(user),
+		fabsdk.WithOrg(mspID),
 	)
 	resClient, err := resmgmt.New(sdkContext)
 	if err != nil {
@@ -36,8 +36,8 @@ func (r *queryResolver) Channel(ctx context.Context, name string, mspID string, 
 	}
 	channelProvider := r.FabricSDK.ChannelContext(
 		name,
-		fabsdk.WithUser("admin"),
-		fabsdk.WithOrg("euipomsp"),
+		fabsdk.WithUser(user),
+		fabsdk.WithOrg(mspID),
 	)
 	ledgerClient, err := ledger.New(channelProvider)
 	if err != nil {
