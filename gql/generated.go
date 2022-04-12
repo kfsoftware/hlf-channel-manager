@@ -60,7 +60,7 @@ type ComplexityRoot struct {
 		AddOrg         func(childComplexity int, input models.OrgDefinition) int
 		ComputeChannel func(childComplexity int, name string, config models.ChannelConfig) int
 		DeleteOrg      func(childComplexity int, name string) int
-		SyncChannel    func(childComplexity int, channelConfig string, saveOrderer bool, saveApplication bool) int
+		SyncChannel    func(childComplexity int, channelConfig string, saveOrderer bool, saveApplication bool, joinOrderers bool, joinPeers bool) int
 	}
 
 	Org struct {
@@ -77,9 +77,11 @@ type ComplexityRoot struct {
 	}
 
 	SyncChannelResponse struct {
-		OutputJSON func(childComplexity int) int
-		OutputPb   func(childComplexity int) int
-		Success    func(childComplexity int) int
+		ApplicationTxID func(childComplexity int) int
+		OrdererTxID     func(childComplexity int) int
+		OrderersJoined  func(childComplexity int) int
+		PeersJoined     func(childComplexity int) int
+		Success         func(childComplexity int) int
 	}
 
 	_Service struct {
@@ -88,7 +90,7 @@ type ComplexityRoot struct {
 }
 
 type MutationResolver interface {
-	SyncChannel(ctx context.Context, channelConfig string, saveOrderer bool, saveApplication bool) (*models.SyncChannelResponse, error)
+	SyncChannel(ctx context.Context, channelConfig string, saveOrderer bool, saveApplication bool, joinOrderers bool, joinPeers bool) (*models.SyncChannelResponse, error)
 	ComputeChannel(ctx context.Context, name string, config models.ChannelConfig) (*models.ComputeChannelResponse, error)
 	AddOrg(ctx context.Context, input models.OrgDefinition) (*models.Org, error)
 	DeleteOrg(ctx context.Context, name string) (*models.Org, error)
@@ -202,7 +204,7 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 			return 0, false
 		}
 
-		return e.complexity.Mutation.SyncChannel(childComplexity, args["channelConfig"].(string), args["saveOrderer"].(bool), args["saveApplication"].(bool)), true
+		return e.complexity.Mutation.SyncChannel(childComplexity, args["channelConfig"].(string), args["saveOrderer"].(bool), args["saveApplication"].(bool), args["joinOrderers"].(bool), args["joinPeers"].(bool)), true
 
 	case "Org.mspId":
 		if e.complexity.Org.MspID == nil {
@@ -263,19 +265,33 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Query.__resolve__service(childComplexity), true
 
-	case "SyncChannelResponse.outputJson":
-		if e.complexity.SyncChannelResponse.OutputJSON == nil {
+	case "SyncChannelResponse.applicationTxId":
+		if e.complexity.SyncChannelResponse.ApplicationTxID == nil {
 			break
 		}
 
-		return e.complexity.SyncChannelResponse.OutputJSON(childComplexity), true
+		return e.complexity.SyncChannelResponse.ApplicationTxID(childComplexity), true
 
-	case "SyncChannelResponse.outputPB":
-		if e.complexity.SyncChannelResponse.OutputPb == nil {
+	case "SyncChannelResponse.ordererTxId":
+		if e.complexity.SyncChannelResponse.OrdererTxID == nil {
 			break
 		}
 
-		return e.complexity.SyncChannelResponse.OutputPb(childComplexity), true
+		return e.complexity.SyncChannelResponse.OrdererTxID(childComplexity), true
+
+	case "SyncChannelResponse.orderersJoined":
+		if e.complexity.SyncChannelResponse.OrderersJoined == nil {
+			break
+		}
+
+		return e.complexity.SyncChannelResponse.OrderersJoined(childComplexity), true
+
+	case "SyncChannelResponse.peersJoined":
+		if e.complexity.SyncChannelResponse.PeersJoined == nil {
+			break
+		}
+
+		return e.complexity.SyncChannelResponse.PeersJoined(childComplexity), true
 
 	case "SyncChannelResponse.success":
 		if e.complexity.SyncChannelResponse.Success == nil {
@@ -362,7 +378,13 @@ var sources = []*ast.Source{
 # update channel
 # add consenter
 type Mutation {
-    syncChannel(channelConfig: String!, saveOrderer: Boolean!, saveApplication: Boolean!): SyncChannelResponse!
+    syncChannel(
+        channelConfig: String!,
+        saveOrderer: Boolean! = true,
+        saveApplication: Boolean! = true,
+        joinOrderers: Boolean! = true,
+        joinPeers: Boolean! = true,
+    ): SyncChannelResponse!
     computeChannel(name: String!, config: ChannelConfig!): ComputeChannelResponse!
     addOrg(input: OrgDefinition!): Org!
     deleteOrg(name: String!): Org!
@@ -370,8 +392,11 @@ type Mutation {
 
 type SyncChannelResponse {
     success: Boolean!
-    outputJson: String!
-    outputPB: String!
+    applicationTxId: String!
+    ordererTxId: String!
+    orderersJoined: [String!]
+    peersJoined: [String!]
+
 }
 input OrgDefinition {
     signCACertificate: String!
@@ -509,7 +534,8 @@ type Org {
     mspId: String!
     signCACertificate: String!
     tlsCACertificate: String!
-}`, BuiltIn: false},
+}
+`, BuiltIn: false},
 	{Name: "schemas/schema.graphql", Input: `
 scalar Time
 scalar Upload
@@ -631,6 +657,24 @@ func (ec *executionContext) field_Mutation_syncChannel_args(ctx context.Context,
 		}
 	}
 	args["saveApplication"] = arg2
+	var arg3 bool
+	if tmp, ok := rawArgs["joinOrderers"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("joinOrderers"))
+		arg3, err = ec.unmarshalNBoolean2bool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["joinOrderers"] = arg3
+	var arg4 bool
+	if tmp, ok := rawArgs["joinPeers"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("joinPeers"))
+		arg4, err = ec.unmarshalNBoolean2bool(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["joinPeers"] = arg4
 	return args, nil
 }
 
@@ -970,7 +1014,7 @@ func (ec *executionContext) _Mutation_syncChannel(ctx context.Context, field gra
 	fc.Args = args
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().SyncChannel(rctx, args["channelConfig"].(string), args["saveOrderer"].(bool), args["saveApplication"].(bool))
+		return ec.resolvers.Mutation().SyncChannel(rctx, args["channelConfig"].(string), args["saveOrderer"].(bool), args["saveApplication"].(bool), args["joinOrderers"].(bool), args["joinPeers"].(bool))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1469,7 +1513,7 @@ func (ec *executionContext) _SyncChannelResponse_success(ctx context.Context, fi
 	return ec.marshalNBoolean2bool(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) _SyncChannelResponse_outputJson(ctx context.Context, field graphql.CollectedField, obj *models.SyncChannelResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _SyncChannelResponse_applicationTxId(ctx context.Context, field graphql.CollectedField, obj *models.SyncChannelResponse) (ret graphql.Marshaler) {
 	defer func() {
 		if r := recover(); r != nil {
 			ec.Error(ctx, ec.Recover(ctx, r))
@@ -1487,7 +1531,7 @@ func (ec *executionContext) _SyncChannelResponse_outputJson(ctx context.Context,
 	ctx = graphql.WithFieldContext(ctx, fc)
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.OutputJSON, nil
+		return obj.ApplicationTxID, nil
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1504,7 +1548,7 @@ func (ec *executionContext) _SyncChannelResponse_outputJson(ctx context.Context,
 	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) _SyncChannelResponse_outputPB(ctx context.Context, field graphql.CollectedField, obj *models.SyncChannelResponse) (ret graphql.Marshaler) {
+func (ec *executionContext) _SyncChannelResponse_ordererTxId(ctx context.Context, field graphql.CollectedField, obj *models.SyncChannelResponse) (ret graphql.Marshaler) {
 	defer func() {
 		if r := recover(); r != nil {
 			ec.Error(ctx, ec.Recover(ctx, r))
@@ -1522,7 +1566,7 @@ func (ec *executionContext) _SyncChannelResponse_outputPB(ctx context.Context, f
 	ctx = graphql.WithFieldContext(ctx, fc)
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.OutputPb, nil
+		return obj.OrdererTxID, nil
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1537,6 +1581,70 @@ func (ec *executionContext) _SyncChannelResponse_outputPB(ctx context.Context, f
 	res := resTmp.(string)
 	fc.Result = res
 	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) _SyncChannelResponse_orderersJoined(ctx context.Context, field graphql.CollectedField, obj *models.SyncChannelResponse) (ret graphql.Marshaler) {
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	fc := &graphql.FieldContext{
+		Object:     "SyncChannelResponse",
+		Field:      field,
+		Args:       nil,
+		IsMethod:   false,
+		IsResolver: false,
+	}
+
+	ctx = graphql.WithFieldContext(ctx, fc)
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.OrderersJoined, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalOString2ᚕstringᚄ(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) _SyncChannelResponse_peersJoined(ctx context.Context, field graphql.CollectedField, obj *models.SyncChannelResponse) (ret graphql.Marshaler) {
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	fc := &graphql.FieldContext{
+		Object:     "SyncChannelResponse",
+		Field:      field,
+		Args:       nil,
+		IsMethod:   false,
+		IsResolver: false,
+	}
+
+	ctx = graphql.WithFieldContext(ctx, fc)
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.PeersJoined, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.([]string)
+	fc.Result = res
+	return ec.marshalOString2ᚕstringᚄ(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) __Service_sdl(ctx context.Context, field graphql.CollectedField, obj *fedruntime.Service) (ret graphql.Marshaler) {
@@ -4010,9 +4118,9 @@ func (ec *executionContext) _SyncChannelResponse(ctx context.Context, sel ast.Se
 			if out.Values[i] == graphql.Null {
 				invalids++
 			}
-		case "outputJson":
+		case "applicationTxId":
 			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._SyncChannelResponse_outputJson(ctx, field, obj)
+				return ec._SyncChannelResponse_applicationTxId(ctx, field, obj)
 			}
 
 			out.Values[i] = innerFunc(ctx)
@@ -4020,9 +4128,9 @@ func (ec *executionContext) _SyncChannelResponse(ctx context.Context, sel ast.Se
 			if out.Values[i] == graphql.Null {
 				invalids++
 			}
-		case "outputPB":
+		case "ordererTxId":
 			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._SyncChannelResponse_outputPB(ctx, field, obj)
+				return ec._SyncChannelResponse_ordererTxId(ctx, field, obj)
 			}
 
 			out.Values[i] = innerFunc(ctx)
@@ -4030,6 +4138,20 @@ func (ec *executionContext) _SyncChannelResponse(ctx context.Context, sel ast.Se
 			if out.Values[i] == graphql.Null {
 				invalids++
 			}
+		case "orderersJoined":
+			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._SyncChannelResponse_orderersJoined(ctx, field, obj)
+			}
+
+			out.Values[i] = innerFunc(ctx)
+
+		case "peersJoined":
+			innerFunc := func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._SyncChannelResponse_peersJoined(ctx, field, obj)
+			}
+
+			out.Values[i] = innerFunc(ctx)
+
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

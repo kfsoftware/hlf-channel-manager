@@ -152,7 +152,9 @@ type PolicyInput struct {
 }
 
 type SyncChannelResponse struct {
-	Success    bool   `json:"success"`
-	OutputJSON string `json:"outputJson"`
-	OutputPb   string `json:"outputPB"`
+	Success         bool     `json:"success"`
+	ApplicationTxID string   `json:"applicationTxId"`
+	OrdererTxID     string   `json:"ordererTxId"`
+	OrderersJoined  []string `json:"orderersJoined"`
+	PeersJoined     []string `json:"peersJoined"`
 }

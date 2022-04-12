@@ -99,21 +99,18 @@ func getResmgmtClient(sdk *fabsdk.FabricSDK, adminOrg appconfig.AdminOrg, config
 	return resClient, sdkContext, adminUser, nil
 }
 
-func SyncChannel(
-	ctx context.Context,
-	channelConfig appconfig.ChannelConfig,
-	dcs map[string]*appconfig.DCClient,
-	sdk *fabsdk.FabricSDK,
-	configBackends []core.ConfigBackend,
-	saveOrderer bool,
-	savePeer bool,
-	joinOrderers bool,
-	joinPeers bool,
-) error {
+type SyncChannelResponse struct {
+	ApplicationTxId string
+	OrdererTxId     string
+	OrderersJoined  []string
+	PeersJoined     []string
+}
+
+func SyncChannel(ctx context.Context, channelConfig appconfig.ChannelConfig, dcs map[string]*appconfig.DCClient, sdk *fabsdk.FabricSDK, configBackends []core.ConfigBackend, saveOrderer bool, savePeer bool, joinOrderers bool, joinPeers bool) (*SyncChannelResponse, error) {
 	firstAdminOrg := channelConfig.PeerAdminOrgs[0]
 	resClient, _, _, err := getResmgmtClient(sdk, firstAdminOrg, configBackends, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	channelExists := true
 	channelBlock, err := resClient.QueryConfigBlockFromOrderer(channelConfig.Name)
@@ -121,6 +118,10 @@ func SyncChannel(
 		log.Infof("channel %s does not exist, it will be created", channelConfig.Name)
 		channelExists = false
 	}
+	var applicationTxId string
+	var ordererTxId string
+	var orderersJoined []string
+	var peersJoined []string
 
 	var ordererOrgs []configtx.Organization
 	for _, ordOrg := range channelConfig.OrdererOrgs {
@@ -128,22 +129,22 @@ func SyncChannel(
 		ca, err := dc.HLFClient.HlfV1alpha1().FabricCAs(ordOrg.CA.Namespace).Get(ctx, ordOrg.CA.Name, v1.GetOptions{})
 		if err != nil {
 			log.Errorf("failed to get ca %v", err)
-			return err
+			return nil, err
 		}
 		signRootCert, err := utils.ParseX509Certificate([]byte(ca.Status.CACert))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		tlsRootCert, err := utils.ParseX509Certificate([]byte(ca.Status.TLSCACert))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var ordererUrls []string
 		for _, ordererItem := range ordOrg.Orderers {
 			ord, err := dc.HLFClient.HlfV1alpha1().FabricOrdererNodes(ordererItem.Namespace).Get(ctx, ordererItem.Name, v1.GetOptions{})
 			if err != nil {
 				log.Errorf("failed to get ord %v", err)
-				return err
+				return nil, err
 			}
 			istioPort := ord.Spec.Istio.Port
 			istioHost := ord.Spec.Istio.Hosts[0]
@@ -157,7 +158,7 @@ func SyncChannel(
 			[]configtx.Address{},
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		ordererOrgs = append(ordererOrgs, genesisOrdererOrg)
 	}
@@ -168,15 +169,15 @@ func SyncChannel(
 		ca, err := dc.HLFClient.HlfV1alpha1().FabricCAs(peerOrg.CA.Namespace).Get(ctx, peerOrg.CA.Name, v1.GetOptions{})
 		if err != nil {
 			log.Errorf("failed to get ca %v", err)
-			return err
+			return nil, err
 		}
 		signRootCert, err := utils.ParseX509Certificate([]byte(ca.Status.CACert))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		tlsRootCert, err := utils.ParseX509Certificate([]byte(ca.Status.TLSCACert))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		genesisPeerOrg, err := memberToConfigtxOrg(
 			peerOrg.MSPID,
@@ -186,7 +187,7 @@ func SyncChannel(
 			anchorPeers,
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		peerOrgs = append(peerOrgs, genesisPeerOrg)
 	}
@@ -196,11 +197,11 @@ func SyncChannel(
 		ord, err := dc.HLFClient.HlfV1alpha1().FabricOrdererNodes(consenter.Namespace).Get(ctx, consenter.Name, v1.GetOptions{})
 		if err != nil {
 			log.Errorf("failed to get ord %v", err)
-			return err
+			return nil, err
 		}
 		tlsCert, err := utils.ParseX509Certificate([]byte(ord.Status.TlsCert))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		istioPort := ord.Spec.Istio.Port
 		istioHost := ord.Spec.Istio.Hosts[0]
@@ -352,28 +353,28 @@ func SyncChannel(
 		ordererAdminOrg := channelConfig.OrdererAdminOrgs[0]
 		ordResClient, _, _, err := getResmgmtClient(sdk, ordererAdminOrg, configBackends, false)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		_ = ordResClient
 		cfgBlock, err := resource.ExtractConfigFromBlock(channelBlock)
 		if err != nil {
-			return errors.Wrapf(err, "failed to extract config from channel block")
+			return nil, errors.Wrapf(err, "failed to extract config from channel block")
 		}
 		updatedConfigTX := configtx.New(cfgBlock)
 		err = updateOrdererChannelConfigTx(updatedConfigTX, configTXChannelConfig)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		configUpdate, err := resmgmt.CalculateConfigUpdate(channelConfig.Name, cfgBlock, updatedConfigTX.UpdatedConfig())
 		if err != nil {
 			if !strings.Contains(err.Error(), "no differences detected between original and updated config") {
-				return errors.Wrapf(err, "error calculating config update")
+				return nil, errors.Wrapf(err, "error calculating config update")
 			}
 			goto applicationUpdate
 		}
 		channelConfigBytes, err := CreateConfigUpdateEnvelope(channelConfig.Name, configUpdate)
 		if err != nil {
-			return errors.Wrapf(err, "error creating config update envelope")
+			return nil, errors.Wrapf(err, "error creating config update envelope")
 		}
 		configUpdateReader := bytes.NewReader(channelConfigBytes)
 		var configSignatures []*cb.ConfigSignature
@@ -381,11 +382,11 @@ func SyncChannel(
 			configUpdateReader = bytes.NewReader(channelConfigBytes)
 			resClient, _, usr, err := getResmgmtClient(sdk, adminOrderer, configBackends, false)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			signature, err := resClient.CreateConfigSignatureFromReader(usr, configUpdateReader)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			configSignatures = append(configSignatures, signature)
 		}
@@ -399,36 +400,37 @@ func SyncChannel(
 			resmgmt.WithConfigSignatures(configSignatures...),
 		)
 		if err != nil {
-			return errors.Wrapf(err, "error saving orderer configuration")
+			return nil, errors.Wrapf(err, "error saving orderer configuration")
 		}
 		log.Infof("Orderer configuration updated with transaction ID: %s", saveChannelResponse.TransactionID)
+		ordererTxId = string(saveChannelResponse.TransactionID)
 	}
 applicationUpdate:
 	if channelExists && savePeer {
 		peerAdminOrg := channelConfig.PeerAdminOrgs[0]
 		peerResClient, _, _, err := getResmgmtClient(sdk, peerAdminOrg, configBackends, false)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		cfgBlock, err := resource.ExtractConfigFromBlock(channelBlock)
 		if err != nil {
-			return errors.Wrapf(err, "failed to extract config from channel block")
+			return nil, errors.Wrapf(err, "failed to extract config from channel block")
 		}
 		updatedConfigTX := configtx.New(cfgBlock)
 		err = updateApplicationChannelConfigTx(updatedConfigTX, configTXChannelConfig)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		configUpdate, err := resmgmt.CalculateConfigUpdate(channelConfig.Name, cfgBlock, updatedConfigTX.UpdatedConfig())
 		if err != nil {
 			if !strings.Contains(err.Error(), "no differences detected between original and updated config") {
-				return errors.Wrapf(err, "error calculating config update")
+				return nil, errors.Wrapf(err, "error calculating config update")
 			}
 			goto FINISH
 		}
 		channelConfigBytes, err := CreateConfigUpdateEnvelope(channelConfig.Name, configUpdate)
 		if err != nil {
-			return errors.Wrapf(err, "error creating config update envelope")
+			return nil, errors.Wrapf(err, "error creating config update envelope")
 		}
 		configUpdateReader := bytes.NewReader(channelConfigBytes)
 		var configSignatures []*cb.ConfigSignature
@@ -436,11 +438,11 @@ applicationUpdate:
 			configUpdateReader = bytes.NewReader(channelConfigBytes)
 			peerResClient, _, usr, err := getResmgmtClient(sdk, adminPeer, configBackends, false)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			signature, err := peerResClient.CreateConfigSignatureFromReader(usr, configUpdateReader)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			configSignatures = append(configSignatures, signature)
 		}
@@ -454,47 +456,49 @@ applicationUpdate:
 			resmgmt.WithConfigSignatures(configSignatures...),
 		)
 		if err != nil {
-			return errors.Wrapf(err, "error saving application configuration")
+			return nil, errors.Wrapf(err, "error saving application configuration")
 		}
 		log.Infof("Application configuration updated with transaction ID: %s", saveChannelResponse.TransactionID)
+		applicationTxId = string(saveChannelResponse.TransactionID)
 	}
 FINISH:
 	if joinOrderers {
 		genesisBlock, err := configtx.NewApplicationChannelGenesisBlock(configTXChannelConfig, channelConfig.Name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, consenter := range channelConfig.Consenters {
 			dc := dcs[consenter.DC]
 			ordererAdminOrg := channelConfig.OrdererAdminOrgs[0]
 			_, _, id, err := getResmgmtClient(sdk, ordererAdminOrg, configBackends, true)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			ord, err := dc.HLFClient.HlfV1alpha1().FabricOrdererNodes("hlf").Get(ctx, consenter.Name, v1.GetOptions{})
 			if err != nil {
 				log.Errorf("failed to get ord %v", err)
-				return err
+				return nil, err
 			}
 			genesisBlockBytes, err := proto.Marshal(genesisBlock)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			pkBytes, err := id.PrivateKey().Bytes()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			adminOrderer, err := tls.X509KeyPair(
 				id.EnrollmentCertificate(),
 				pkBytes,
 			)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			err = joinOrderer(ord, genesisBlockBytes, adminOrderer)
 			if err != nil {
-				return errors.Wrapf(err, "failed to join orderer %s", ord.Name)
+				return nil, errors.Wrapf(err, "failed to join orderer %s", ord.Name)
 			}
+			orderersJoined = append(orderersJoined, ord.Name)
 		}
 	}
 	if joinPeers {
@@ -510,7 +514,7 @@ FINISH:
 				false,
 			)
 			if err != nil {
-				return errors.Wrapf(err, "error getting resource management client for peer org %s", peerOrg.MSPID)
+				return nil, errors.Wrapf(err, "error getting resource management client for peer org %s", peerOrg.MSPID)
 			}
 			for _, peer := range peerOrg.Peers {
 				err = resClient.JoinChannel(channelConfig.Name, resmgmt.WithRetry(retry.DefaultResMgmtOpts), resmgmt.WithTargetEndpoints(peer.Name))
@@ -519,13 +523,19 @@ FINISH:
 						log.Infof("Peer %s already joined channel %s", peer.Name, channelConfig.Name)
 						continue
 					}
-					return errors.Wrapf(err, "error joining peer %s to channel %s", peer.Name, channelConfig.Name)
+					return nil, errors.Wrapf(err, "error joining peer %s to channel %s", peer.Name, channelConfig.Name)
 				}
+				peersJoined = append(peersJoined, peer.Name)
 			}
 		}
 	}
 
-	return nil
+	return &SyncChannelResponse{
+		ApplicationTxId: applicationTxId,
+		OrdererTxId:     ordererTxId,
+		OrderersJoined:  orderersJoined,
+		PeersJoined:     peersJoined,
+	}, nil
 }
 func joinOrderer(ordererNode *v1alpha1.FabricOrdererNode, blockBytes []byte, tlsClientCert tls.Certificate) error {
 	certPool := x509.NewCertPool()

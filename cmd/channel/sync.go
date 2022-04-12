@@ -55,7 +55,7 @@ func (c syncCmd) run() error {
 	if err != nil {
 		return err
 	}
-	err = channel.SyncChannel(
+	_, err = channel.SyncChannel(
 		ctx,
 		channelConfig,
 		map[string]*appconfig.DCClient{},

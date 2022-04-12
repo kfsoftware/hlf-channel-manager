@@ -5,7 +5,13 @@
 # update channel
 # add consenter
 type Mutation {
-    syncChannel(channelConfig: String!, saveOrderer: Boolean!, saveApplication: Boolean!): SyncChannelResponse!
+    syncChannel(
+        channelConfig: String!,
+        saveOrderer: Boolean! = true,
+        saveApplication: Boolean! = true,
+        joinOrderers: Boolean! = true,
+        joinPeers: Boolean! = true,
+    ): SyncChannelResponse!
     computeChannel(name: String!, config: ChannelConfig!): ComputeChannelResponse!
     addOrg(input: OrgDefinition!): Org!
     deleteOrg(name: String!): Org!
@@ -13,8 +19,11 @@ type Mutation {
 
 type SyncChannelResponse {
     success: Boolean!
-    outputJson: String!
-    outputPB: String!
+    applicationTxId: String!
+    ordererTxId: String!
+    orderersJoined: [String!]
+    peersJoined: [String!]
+
 }
 input OrgDefinition {
     signCACertificate: String!

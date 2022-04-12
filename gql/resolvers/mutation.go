@@ -324,13 +324,20 @@ func defaultACLs() map[string]string {
 	}
 }
 
-func (r *mutationResolver) SyncChannel(ctx context.Context, channelConfigStr string, saveOrderer bool, saveApplication bool) (*models.SyncChannelResponse, error) {
+func (r *mutationResolver) SyncChannel(
+	ctx context.Context,
+	channelConfigStr string,
+	saveOrderer bool,
+	saveApplication bool,
+	joinOrderers bool,
+	joinPeers bool,
+) (*models.SyncChannelResponse, error) {
 	channelConfig := appconfig.ChannelConfig{}
 	err := yaml.Unmarshal([]byte(channelConfigStr), &channelConfig)
 	if err != nil {
 		return nil, err
 	}
-	err = channel.SyncChannel(
+	res, err := channel.SyncChannel(
 		ctx,
 		channelConfig,
 		r.DCS,
@@ -338,16 +345,18 @@ func (r *mutationResolver) SyncChannel(ctx context.Context, channelConfigStr str
 		r.ConfigBackend,
 		saveOrderer,
 		saveApplication,
-		true,
-		true,
+		joinOrderers,
+		joinPeers,
 	)
 	if err != nil {
 		return nil, err
 	}
 	return &models.SyncChannelResponse{
-		Success:    true,
-		OutputJSON: "",
-		OutputPb:   "",
+		Success:         true,
+		ApplicationTxID: res.ApplicationTxId,
+		OrdererTxID:     res.OrdererTxId,
+		OrderersJoined:  res.OrderersJoined,
+		PeersJoined:     res.PeersJoined,
 	}, nil
 
 }
