@@ -7,11 +7,10 @@ import (
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
 	appconfig "github.com/kfsoftware/hlf-channel-manager/config"
 	"github.com/kfsoftware/hlf-channel-manager/gql"
-	operatorv1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
 )
 
 type Resolver struct {
-	DCS                  map[string]*operatorv1.Clientset
+	DCS                  map[string]*appconfig.DCClient
 	ChannelManagerConfig appconfig.HLFChannelManagerConfig
 	FabricSDK            *fabsdk.FabricSDK
 	ConfigBackend        []core.ConfigBackend

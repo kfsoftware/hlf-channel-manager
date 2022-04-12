@@ -58,11 +58,13 @@ func (c syncCmd) run() error {
 	err = channel.SyncChannel(
 		ctx,
 		channelConfig,
-		channelManagerConfig,
+		map[string]*appconfig.DCClient{},
 		sdk,
 		coreBackends,
 		c.saveOrderer,
 		c.savePeer,
+		false,
+		false,
 	)
 	if err != nil {
 		return err

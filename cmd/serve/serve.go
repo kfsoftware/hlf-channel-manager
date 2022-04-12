@@ -2,16 +2,20 @@ package serve
 
 import (
 	"context"
+	"github.com/hyperledger/fabric-sdk-go/pkg/common/providers/core"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
 	appconfig "github.com/kfsoftware/hlf-channel-manager/config"
 	"github.com/kfsoftware/hlf-channel-manager/log"
+	"github.com/kfsoftware/hlf-channel-manager/nc"
 	"github.com/kfsoftware/hlf-channel-manager/server"
 	operatorv1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"io/ioutil"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -58,27 +62,28 @@ func (c *serveCmd) validate() error {
 	if c.metricsAddress == "" {
 		return errors.New("--metrics-address is required for the server")
 	}
-	if c.config == "" {
-		return errors.New("--config is required for the server")
-	}
-	if c.hlfConfig == "" {
-		return errors.New("--hlf-config is required for the server")
-	}
 	return nil
 }
 
 func (c *serveCmd) run() error {
 	ctx := context.Background()
 	channelManagerConfig := appconfig.HLFChannelManagerConfig{}
-	hlfManagerConfigBytes, err := ioutil.ReadFile(c.config)
-	if err != nil {
-		return err
+	if c.config != "" {
+		hlfManagerConfigBytes, err := ioutil.ReadFile(c.config)
+		if err != nil {
+			return err
+		}
+		err = yaml.Unmarshal(hlfManagerConfigBytes, &channelManagerConfig)
+		if err != nil {
+			return err
+		}
 	}
-	err = yaml.Unmarshal(hlfManagerConfigBytes, &channelManagerConfig)
+	restConfigInCluster, err := rest.InClusterConfig()
 	if err != nil {
-		return err
+		log.Warnf("Failed to get in cluster config: %s", err)
 	}
-	dcs := map[string]*operatorv1.Clientset{}
+	log.Infof("Creating a new SDK instance to connect to %s", restConfigInCluster)
+	dcs := map[string]*appconfig.DCClient{}
 	for _, dc := range channelManagerConfig.DCs {
 		restConfig, err := clientcmd.BuildConfigFromFlags("", dc.KubeConfig)
 		if err != nil {
@@ -90,9 +95,45 @@ func (c *serveCmd) run() error {
 			log.Errorf("failed to build hlf client from %v", err)
 			return err
 		}
-		dcs[dc.Name] = hlfClient
+		kubeClientSet, err := kubernetes.NewForConfig(restConfig)
+		if err != nil {
+			log.Errorf("failed to build kube client from %v", err)
+			return err
+		}
+		dcs[dc.Name] = &appconfig.DCClient{
+			HLFClient:  hlfClient,
+			KubeClient: kubeClientSet,
+			KubeConfig: restConfigInCluster,
+		}
 	}
-	configBackend := config.FromFile(c.hlfConfig)
+	var configBackend core.ConfigProvider
+	if c.hlfConfig != "" {
+		configBackend = config.FromFile(c.hlfConfig)
+	} else if restConfigInCluster != nil {
+		hlfClient, err := operatorv1.NewForConfig(restConfigInCluster)
+		if err != nil {
+			log.Errorf("failed to build hlf client from %v", err)
+			return err
+		}
+		kubeClientSet, err := kubernetes.NewForConfig(restConfigInCluster)
+		if err != nil {
+			log.Errorf("failed to build kube client from %v", err)
+			return err
+		}
+		ncResponse, err := nc.GenerateNetworkConfig(kubeClientSet, hlfClient, "")
+		if err != nil {
+			log.Errorf("failed to generate network config from %v", err)
+			return err
+		}
+		configBackend = config.FromRaw([]byte(ncResponse.NetworkConfig), "yaml")
+		dcs["default"] = &appconfig.DCClient{
+			HLFClient:  hlfClient,
+			KubeClient: kubeClientSet,
+			KubeConfig: restConfigInCluster,
+		}
+	} else {
+		return errors.New("no network config configured")
+	}
 	sdk, err := fabsdk.New(configBackend)
 	if err != nil {
 		return err

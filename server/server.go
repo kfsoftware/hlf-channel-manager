@@ -5,8 +5,6 @@ import (
 	"github.com/hyperledger/fabric-sdk-go/pkg/common/providers/core"
 	"github.com/hyperledger/fabric-sdk-go/pkg/fabsdk"
 	appconfig "github.com/kfsoftware/hlf-channel-manager/config"
-	operatorv1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
-
 	"github.com/kfsoftware/hlf-channel-manager/gql"
 	"github.com/kfsoftware/hlf-channel-manager/gql/resolvers"
 	"github.com/kfsoftware/hlf-channel-manager/log"
@@ -34,7 +32,7 @@ type MetricsRegistry interface {
 type BlockchainServerOpts struct {
 	Address              string
 	MetricsAddress       string
-	DCS                  map[string]*operatorv1.Clientset
+	DCS                  map[string]*appconfig.DCClient
 	FabricSDK            *fabsdk.FabricSDK
 	ChannelManagerConfig appconfig.HLFChannelManagerConfig
 	ConfigBackend        []core.ConfigBackend

@@ -1,6 +1,11 @@
 package config
 
-import "time"
+import (
+	operatorv1 "github.com/kfsoftware/hlf-operator/pkg/client/clientset/versioned"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"time"
+)
 
 type HLFChannelManagerConfig struct {
 	DCs []DC `yaml:"dcs"`
@@ -8,6 +13,12 @@ type HLFChannelManagerConfig struct {
 type DC struct {
 	Name       string `yaml:"name"`
 	KubeConfig string `yaml:"kubeconfig"`
+}
+
+type DCClient struct {
+	HLFClient  *operatorv1.Clientset
+	KubeClient *kubernetes.Clientset
+	KubeConfig *rest.Config
 }
 
 type ChannelConfig struct {
@@ -70,11 +81,18 @@ type Policy struct {
 type AdminOrg struct {
 	MSPID string `yaml:"mspid"`
 	CA    string `yaml:"ca"`
+	TLSCA string `yaml:"tlsCA"`
 }
 
 type PeerOrg struct {
-	MSPID string `yaml:"mspid"`
-	CA    CA     `yaml:"ca"`
+	MSPID  string `yaml:"mspid"`
+	CA     CA     `yaml:"ca"`
+	SignCA string `yaml:"signCA"`
+	Peers  []Peer `yaml:"peers"`
+}
+type Peer struct {
+	Name string `yaml:"name"`
+	DC   string `yaml:"dc"`
 }
 type OrdererOrg struct {
 	MSPID    string    `yaml:"mspid"`
@@ -82,15 +100,18 @@ type OrdererOrg struct {
 	Orderers []Orderer `yaml:"orderers"`
 }
 type Orderer struct {
-	Name string `yaml:"name"`
-	DC   string `yaml:"dc"`
+	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace"`
+	DC        string `yaml:"dc"`
 }
 
 type CA struct {
-	Name string `yaml:"name"`
-	DC   string `yaml:"dc"`
+	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace"`
+	DC        string `yaml:"dc"`
 }
 type Consenter struct {
-	Name string `yaml:"name"`
-	DC   string `yaml:"dc"`
+	Name      string `yaml:"name"`
+	DC        string `yaml:"dc"`
+	Namespace string `yaml:"namespace"`
 }

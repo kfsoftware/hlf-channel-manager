@@ -333,11 +333,13 @@ func (r *mutationResolver) SyncChannel(ctx context.Context, channelConfigStr str
 	err = channel.SyncChannel(
 		ctx,
 		channelConfig,
-		r.ChannelManagerConfig,
+		r.DCS,
 		r.FabricSDK,
 		r.ConfigBackend,
 		saveOrderer,
 		saveApplication,
+		true,
+		true,
 	)
 	if err != nil {
 		return nil, err
