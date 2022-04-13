@@ -54,13 +54,3 @@ func (r *queryResolver) Channel(ctx context.Context, name string, mspID string, 
 		Config: buffer.String(),
 	}, nil
 }
-
-func (r *queryResolver) Orgs(ctx context.Context) ([]*models.Org, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (r *queryResolver) Org(ctx context.Context, mspID string) (*models.Org, error) {
-	//TODO implement me
-	panic("implement me")
-}
