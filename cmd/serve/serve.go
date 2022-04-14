@@ -30,6 +30,7 @@ type serveCmd struct {
 	metricsAddress string
 	config         string
 	hlfConfig      string
+	kubeConfig     string
 }
 
 func NewServeCmd() *cobra.Command {
@@ -51,6 +52,7 @@ func NewServeCmd() *cobra.Command {
 	f.StringVar(&s.address, "address", "", "address for the server")
 	f.StringVar(&s.metricsAddress, "metrics-address", "", "address for the metrics server")
 	f.StringVar(&s.config, "config", "", "path to the config file")
+	f.StringVar(&s.kubeConfig, "kube-config", "", "path to the kube config file")
 	f.StringVar(&s.hlfConfig, "hlf-config", "", "path to the hlf config")
 	return cmd
 }
@@ -78,24 +80,32 @@ func (c *serveCmd) run() error {
 			return err
 		}
 	}
-	restConfigInCluster, err := rest.InClusterConfig()
+	restConfig, err := rest.InClusterConfig()
 	if err != nil {
 		log.Warnf("Failed to get in cluster config: %s", err)
+	} else {
+		log.Infof("Running in a kubernetes cluster, adding data center \"default\" for the current cluster %s", restConfig)
 	}
-	log.Infof("Creating a new SDK instance to connect to %s", restConfigInCluster)
-	dcs := map[string]*appconfig.DCClient{}
-	for _, dc := range channelManagerConfig.DCs {
-		restConfig, err := clientcmd.BuildConfigFromFlags("", dc.KubeConfig)
+	if c.kubeConfig != "" {
+		restConfig, err = clientcmd.BuildConfigFromFlags("", c.kubeConfig)
 		if err != nil {
 			log.Errorf("failed to build config from %v", err)
 			return err
 		}
-		hlfClient, err := operatorv1.NewForConfig(restConfig)
+	}
+	dcs := map[string]*appconfig.DCClient{}
+	for _, dc := range channelManagerConfig.DCs {
+		restConfigDC, err := clientcmd.BuildConfigFromFlags("", dc.KubeConfig)
+		if err != nil {
+			log.Errorf("failed to build config from %v", err)
+			return err
+		}
+		hlfClient, err := operatorv1.NewForConfig(restConfigDC)
 		if err != nil {
 			log.Errorf("failed to build hlf client from %v", err)
 			return err
 		}
-		kubeClientSet, err := kubernetes.NewForConfig(restConfig)
+		kubeClientSet, err := kubernetes.NewForConfig(restConfigDC)
 		if err != nil {
 			log.Errorf("failed to build kube client from %v", err)
 			return err
@@ -103,19 +113,19 @@ func (c *serveCmd) run() error {
 		dcs[dc.Name] = &appconfig.DCClient{
 			HLFClient:  hlfClient,
 			KubeClient: kubeClientSet,
-			KubeConfig: restConfigInCluster,
+			KubeConfig: restConfigDC,
 		}
 	}
 	var configBackend core.ConfigProvider
 	if c.hlfConfig != "" {
 		configBackend = config.FromFile(c.hlfConfig)
-	} else if restConfigInCluster != nil {
-		hlfClient, err := operatorv1.NewForConfig(restConfigInCluster)
+	} else if restConfig != nil {
+		hlfClient, err := operatorv1.NewForConfig(restConfig)
 		if err != nil {
 			log.Errorf("failed to build hlf client from %v", err)
 			return err
 		}
-		kubeClientSet, err := kubernetes.NewForConfig(restConfigInCluster)
+		kubeClientSet, err := kubernetes.NewForConfig(restConfig)
 		if err != nil {
 			log.Errorf("failed to build kube client from %v", err)
 			return err
@@ -129,7 +139,7 @@ func (c *serveCmd) run() error {
 		dcs["default"] = &appconfig.DCClient{
 			HLFClient:  hlfClient,
 			KubeClient: kubeClientSet,
-			KubeConfig: restConfigInCluster,
+			KubeConfig: restConfig,
 		}
 	} else {
 		return errors.New("no network config configured")

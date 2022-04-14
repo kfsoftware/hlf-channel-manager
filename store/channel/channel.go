@@ -113,9 +113,10 @@ func SyncChannel(ctx context.Context, channelConfig appconfig.ChannelConfig, dcs
 		return nil, err
 	}
 	channelExists := true
-	channelBlock, err := resClient.QueryConfigBlockFromOrderer(channelConfig.Name)
+	channelID := channelConfig.Name
+	channelBlock, err := resClient.QueryConfigBlockFromOrderer(channelID)
 	if err != nil {
-		log.Infof("channel %s does not exist, it will be created", channelConfig.Name)
+		log.Infof("channel %s does not exist, it will be created", channelID)
 		channelExists = false
 	}
 	var applicationTxId string
@@ -365,14 +366,14 @@ func SyncChannel(ctx context.Context, channelConfig appconfig.ChannelConfig, dcs
 		if err != nil {
 			return nil, err
 		}
-		configUpdate, err := resmgmt.CalculateConfigUpdate(channelConfig.Name, cfgBlock, updatedConfigTX.UpdatedConfig())
+		configUpdate, err := resmgmt.CalculateConfigUpdate(channelID, cfgBlock, updatedConfigTX.UpdatedConfig())
 		if err != nil {
 			if !strings.Contains(err.Error(), "no differences detected between original and updated config") {
 				return nil, errors.Wrapf(err, "error calculating config update")
 			}
 			goto applicationUpdate
 		}
-		channelConfigBytes, err := CreateConfigUpdateEnvelope(channelConfig.Name, configUpdate)
+		channelConfigBytes, err := CreateConfigUpdateEnvelope(channelID, configUpdate)
 		if err != nil {
 			return nil, errors.Wrapf(err, "error creating config update envelope")
 		}
@@ -393,7 +394,7 @@ func SyncChannel(ctx context.Context, channelConfig appconfig.ChannelConfig, dcs
 		configUpdateReader = bytes.NewReader(channelConfigBytes)
 		saveChannelResponse, err := ordResClient.SaveChannel(
 			resmgmt.SaveChannelRequest{
-				ChannelID:         channelConfig.Name,
+				ChannelID:         channelID,
 				ChannelConfig:     configUpdateReader,
 				SigningIdentities: []msp.SigningIdentity{},
 			},
@@ -406,64 +407,8 @@ func SyncChannel(ctx context.Context, channelConfig appconfig.ChannelConfig, dcs
 		ordererTxId = string(saveChannelResponse.TransactionID)
 	}
 applicationUpdate:
-	if channelExists && savePeer {
-		peerAdminOrg := channelConfig.PeerAdminOrgs[0]
-		peerResClient, _, _, err := getResmgmtClient(sdk, peerAdminOrg, configBackends, false)
-		if err != nil {
-			return nil, err
-		}
-		cfgBlock, err := resource.ExtractConfigFromBlock(channelBlock)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to extract config from channel block")
-		}
-		updatedConfigTX := configtx.New(cfgBlock)
-		err = updateApplicationChannelConfigTx(updatedConfigTX, configTXChannelConfig)
-		if err != nil {
-			return nil, err
-		}
-		configUpdate, err := resmgmt.CalculateConfigUpdate(channelConfig.Name, cfgBlock, updatedConfigTX.UpdatedConfig())
-		if err != nil {
-			if !strings.Contains(err.Error(), "no differences detected between original and updated config") {
-				return nil, errors.Wrapf(err, "error calculating config update")
-			}
-			goto FINISH
-		}
-		channelConfigBytes, err := CreateConfigUpdateEnvelope(channelConfig.Name, configUpdate)
-		if err != nil {
-			return nil, errors.Wrapf(err, "error creating config update envelope")
-		}
-		configUpdateReader := bytes.NewReader(channelConfigBytes)
-		var configSignatures []*cb.ConfigSignature
-		for _, adminPeer := range channelConfig.PeerAdminOrgs {
-			configUpdateReader = bytes.NewReader(channelConfigBytes)
-			peerResClient, _, usr, err := getResmgmtClient(sdk, adminPeer, configBackends, false)
-			if err != nil {
-				return nil, err
-			}
-			signature, err := peerResClient.CreateConfigSignatureFromReader(usr, configUpdateReader)
-			if err != nil {
-				return nil, err
-			}
-			configSignatures = append(configSignatures, signature)
-		}
-		configUpdateReader = bytes.NewReader(channelConfigBytes)
-		saveChannelResponse, err := peerResClient.SaveChannel(
-			resmgmt.SaveChannelRequest{
-				ChannelID:         channelConfig.Name,
-				ChannelConfig:     configUpdateReader,
-				SigningIdentities: []msp.SigningIdentity{},
-			},
-			resmgmt.WithConfigSignatures(configSignatures...),
-		)
-		if err != nil {
-			return nil, errors.Wrapf(err, "error saving application configuration")
-		}
-		log.Infof("Application configuration updated with transaction ID: %s", saveChannelResponse.TransactionID)
-		applicationTxId = string(saveChannelResponse.TransactionID)
-	}
-FINISH:
 	if joinOrderers {
-		genesisBlock, err := configtx.NewApplicationChannelGenesisBlock(configTXChannelConfig, channelConfig.Name)
+		genesisBlock, err := configtx.NewApplicationChannelGenesisBlock(configTXChannelConfig, channelID)
 		if err != nil {
 			return nil, err
 		}
@@ -517,19 +462,150 @@ FINISH:
 				return nil, errors.Wrapf(err, "error getting resource management client for peer org %s", peerOrg.MSPID)
 			}
 			for _, peer := range peerOrg.Peers {
-				err = resClient.JoinChannel(channelConfig.Name, resmgmt.WithRetry(retry.DefaultResMgmtOpts), resmgmt.WithTargetEndpoints(peer.Name))
+				err = resClient.JoinChannel(channelID, resmgmt.WithRetry(retry.DefaultResMgmtOpts), resmgmt.WithTargetEndpoints(peer.Name))
 				if err != nil {
 					if strings.Contains(err.Error(), "already exists") {
-						log.Infof("Peer %s already joined channel %s", peer.Name, channelConfig.Name)
+						log.Infof("Peer %s already joined channel %s", peer.Name, channelID)
 						continue
 					}
-					return nil, errors.Wrapf(err, "error joining peer %s to channel %s", peer.Name, channelConfig.Name)
+					return nil, errors.Wrapf(err, "error joining peer %s to channel %s", peer.Name, channelID)
 				}
 				peersJoined = append(peersJoined, peer.Name)
 			}
+
 		}
 	}
+	if channelExists && savePeer {
+		peerAdminOrg := channelConfig.PeerAdminOrgs[0]
+		peerResClient, _, _, err := getResmgmtClient(sdk, peerAdminOrg, configBackends, false)
+		if err != nil {
+			return nil, err
+		}
+		cfgBlock, err := resource.ExtractConfigFromBlock(channelBlock)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to extract config from channel block")
+		}
+		updatedConfigTX := configtx.New(cfgBlock)
+		err = updateApplicationChannelConfigTx(updatedConfigTX, configTXChannelConfig)
+		if err != nil {
+			return nil, err
+		}
+		configUpdate, err := resmgmt.CalculateConfigUpdate(channelID, cfgBlock, updatedConfigTX.UpdatedConfig())
+		if err != nil {
+			if !strings.Contains(err.Error(), "no differences detected between original and updated config") {
+				return nil, errors.Wrapf(err, "error calculating config update")
+			}
+			goto FINISH
+		}
+		channelConfigBytes, err := CreateConfigUpdateEnvelope(channelID, configUpdate)
+		if err != nil {
+			return nil, errors.Wrapf(err, "error creating config update envelope")
+		}
+		configUpdateReader := bytes.NewReader(channelConfigBytes)
+		var configSignatures []*cb.ConfigSignature
+		for _, adminPeer := range channelConfig.PeerAdminOrgs {
+			configUpdateReader = bytes.NewReader(channelConfigBytes)
+			peerResClient, _, usr, err := getResmgmtClient(sdk, adminPeer, configBackends, false)
+			if err != nil {
+				return nil, err
+			}
+			signature, err := peerResClient.CreateConfigSignatureFromReader(usr, configUpdateReader)
+			if err != nil {
+				return nil, err
+			}
+			configSignatures = append(configSignatures, signature)
+		}
+		configUpdateReader = bytes.NewReader(channelConfigBytes)
+		saveChannelResponse, err := peerResClient.SaveChannel(
+			resmgmt.SaveChannelRequest{
+				ChannelID:         channelID,
+				ChannelConfig:     configUpdateReader,
+				SigningIdentities: []msp.SigningIdentity{},
+			},
+			resmgmt.WithConfigSignatures(configSignatures...),
+		)
+		if err != nil {
+			return nil, errors.Wrapf(err, "error saving application configuration")
+		}
+		log.Infof("Application configuration updated with transaction ID: %s", saveChannelResponse.TransactionID)
+		applicationTxId = string(saveChannelResponse.TransactionID)
+	}
+FINISH:
 
+	// add anchor peers
+	for _, peerOrg := range channelConfig.PeerOrgs {
+		resClient, _, _, err := getResmgmtClient(
+			sdk,
+			appconfig.AdminOrg{
+				MSPID: peerOrg.MSPID,
+				CA:    peerOrg.SignCA,
+				TLSCA: "",
+			},
+			configBackends,
+			false,
+		)
+		if err != nil {
+			return nil, errors.Wrapf(err, "error getting resource management client for peer org %s", peerOrg.MSPID)
+		}
+		block, err := resClient.QueryConfigBlockFromOrderer(channelID)
+		if err != nil {
+			return nil, err
+		}
+		cfgBlock, err := resource.ExtractConfigFromBlock(block)
+		if err != nil {
+			return nil, err
+		}
+		cftxGen := configtx.New(cfgBlock)
+		app := cftxGen.Application().Organization(peerOrg.MSPID)
+		for _, peer := range peerOrg.AnchorPeers {
+			dc := dcs[peer.DC]
+			ord, err := dc.HLFClient.HlfV1alpha1().FabricPeers(peer.Namespace).Get(ctx, peer.Name, v1.GetOptions{})
+			if err != nil {
+				log.Errorf("failed to get ord %v", err)
+				return nil, err
+			}
+			peerPort := ord.Spec.Istio.Port
+			peerHostName := ord.Spec.Istio.Hosts[0]
+			err = app.AddAnchorPeer(configtx.Address{
+				Host: peerHostName,
+				Port: peerPort,
+			})
+			if err != nil {
+				return nil, err
+			}
+		}
+		anchorPeers, err := app.AnchorPeers()
+		if err != nil {
+			return nil, errors.Wrapf(err, "error getting the anchor peers for org %s", peerOrg.MSPID)
+		}
+		log.Infof("anchorPeers total: %v", anchorPeers)
+		configUpdateBytes, err := cftxGen.ComputeMarshaledUpdate(channelID)
+		if err != nil {
+			if !strings.Contains(err.Error(), "no differences detected between original and updated config") {
+				return nil, errors.Wrapf(err, "error calculating config update")
+			}
+			goto endSyncChannel
+		}
+		configUpdate := &cb.ConfigUpdate{}
+		err = proto.Unmarshal(configUpdateBytes, configUpdate)
+		if err != nil {
+			return nil, err
+		}
+		channelConfigBytes, err := CreateConfigUpdateEnvelope(channelID, configUpdate)
+		if err != nil {
+			return nil, err
+		}
+		configUpdateReader := bytes.NewReader(channelConfigBytes)
+		chResponse, err := resClient.SaveChannel(resmgmt.SaveChannelRequest{
+			ChannelID:     channelID,
+			ChannelConfig: configUpdateReader,
+		})
+		if err != nil {
+			return nil, err
+		}
+		log.Infof("anchor anchorPeers added: %s", chResponse.TransactionID)
+	}
+endSyncChannel:
 	return &SyncChannelResponse{
 		ApplicationTxId: applicationTxId,
 		OrdererTxId:     ordererTxId,
@@ -579,12 +655,12 @@ func updateApplicationChannelConfigTx(currentConfigTX configtx.ConfigTx, newConf
 	if err != nil {
 		return errors.Wrapf(err, "failed to set application")
 	}
-	for _, peerOrg := range newConfigTx.Application.Organizations {
-		err = currentConfigTX.Application().SetOrganization(peerOrg)
-		if err != nil {
-			return errors.Wrapf(err, "failed to set organization %s", peerOrg.Name)
-		}
-	}
+	//for _, peerOrg := range newConfigTx.Application.Organizations {
+	//	err = currentConfigTX.Application().SetOrganization(peerOrg)
+	//	if err != nil {
+	//		return errors.Wrapf(err, "failed to set organization %s", peerOrg.Name)
+	//	}
+	//}
 	app, err := currentConfigTX.Application().Configuration()
 	if err != nil {
 		return errors.Wrapf(err, "failed to get application configuration")

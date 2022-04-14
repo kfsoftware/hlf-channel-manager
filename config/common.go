@@ -85,14 +85,19 @@ type AdminOrg struct {
 }
 
 type PeerOrg struct {
-	MSPID  string `yaml:"mspid"`
-	CA     CA     `yaml:"ca"`
-	SignCA string `yaml:"signCA"`
-	Peers  []Peer `yaml:"peers"`
+	MSPID       string       `yaml:"mspid"`
+	CA          CA           `yaml:"ca"`
+	SignCA      string       `yaml:"signCA"`
+	Peers       []Peer       `yaml:"peers"`
+	AnchorPeers []AnchorPeer `yaml:"anchorPeers"`
+}
+type AnchorPeer struct {
+	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace"`
+	DC        string `yaml:"dc"`
 }
 type Peer struct {
 	Name string `yaml:"name"`
-	DC   string `yaml:"dc"`
 }
 type OrdererOrg struct {
 	MSPID    string    `yaml:"mspid"`
